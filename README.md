@@ -5,6 +5,9 @@
 [![OpenCollective](https://opencollective.com/readline/badge/backers.svg)](#backers)
 [![OpenCollective](https://opencollective.com/readline/badge/sponsors.svg)](#sponsors)
 
+## Fork  
+The original repository has been archived and is no longer maintained. This is a fork in case the maintainer deletes his repo and to include small bugfixes. There is no intention to make this the new official fork.
+
 <p align="center">
 <img src="https://raw.githubusercontent.com/chzyer/readline/assets/logo.png" />
 <a href="https://asciinema.org/a/32oseof9mkilg7t7d4780qt4m" target="_blank"><img src="https://asciinema.org/a/32oseof9mkilg7t7d4780qt4m.png" width="654"/></a>
