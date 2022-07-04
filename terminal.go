@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,8 @@ type Terminal struct {
 	wg        sync.WaitGroup
 	isReading int32
 	sleeping  int32
+
+	writeMutex MultiMuTex
 
 	sizeChan chan string
 }
@@ -62,7 +65,23 @@ func (t *Terminal) ExitRawMode() (err error) {
 }
 
 func (t *Terminal) Write(b []byte) (int, error) {
-	return t.cfg.Stdout.Write(b)
+	needUnlock := false
+	// 检查是否上锁，无则继续打印，有的话，说明有地方要求prompt打印比其他优先
+	// 这时，会判断调用堆栈，如果是Readline+print，说明是prompt打印，并且不能直接解锁，需要等打印完解锁
+	if t.writeMutex.CheckLockStatus() {
+		buf := make([]byte, 4096)
+		runtime.Stack(buf, false)
+		if strings.Contains(string(buf), "readline.(*Instance).Readline(") &&
+			strings.Contains(string(buf), "readline.(*RuneBuffer).print(") {
+			needUnlock = true
+		}
+	}
+	n, err := t.cfg.Stdout.Write(b)
+
+	if needUnlock {
+		t.writeMutex.Unlock()
+	}
+	return n, err
 }
 
 // WriteStdin prefill the next Stdin fetch
@@ -81,6 +100,20 @@ func (t *Terminal) GetOffset(f func(offset string)) {
 		f(<-t.sizeChan)
 	}()
 	t.Write([]byte("\033[6n"))
+}
+
+func (t *Terminal) WriteLock() {
+	t.writeMutex.Lock()
+}
+func (t *Terminal) IsWriteLock() bool {
+	return t.writeMutex.CheckLockStatus()
+}
+
+func (t *Terminal) WriteWait() {
+	t.writeMutex.Wait()
+}
+func (t *Terminal) WriteUnLock() {
+	t.writeMutex.Unlock()
 }
 
 func (t *Terminal) Print(s string) {
