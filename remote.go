@@ -432,7 +432,7 @@ func ListenRemote(n, addr string, cfg *Config, h func(*Instance), onListen ...fu
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			break
+			continue
 		}
 		go func() {
 			defer conn.Close()
