@@ -291,6 +291,9 @@ type RemoteCli struct {
 	inited      int32
 	isTerminal  *bool
 
+	stdin       io.ReadCloser
+	stdinWriter io.Writer
+
 	data  bytes.Buffer
 	dataM sync.Mutex
 }
@@ -300,6 +303,9 @@ func NewRemoteCli(conn net.Conn) (*RemoteCli, error) {
 		conn:        conn,
 		receiveChan: make(chan struct{}),
 	}
+	r.stdin = NewCancelableStdin(Stdin)
+	r.stdin, r.stdinWriter = NewFillableStdin(r.stdin)
+
 	return r, nil
 }
 
@@ -324,6 +330,7 @@ func (r *RemoteCli) init() error {
 	DefaultOnWidthChanged(func() {
 		r.reportWidth()
 	})
+
 	return nil
 }
 
@@ -392,7 +399,7 @@ func (r *RemoteCli) readLoop() {
 	}
 }
 
-func (r *RemoteCli) ServeBy(source io.Reader) error {
+func (r *RemoteCli) ServeBy() error {
 	if err := r.init(); err != nil {
 		return err
 	}
@@ -400,7 +407,7 @@ func (r *RemoteCli) ServeBy(source io.Reader) error {
 	go func() {
 		defer r.Close()
 		for {
-			n, _ := io.Copy(r, source)
+			n, _ := io.Copy(r, r.stdin)
 			if n == 0 {
 				break
 			}
@@ -412,14 +419,15 @@ func (r *RemoteCli) ServeBy(source io.Reader) error {
 }
 
 func (r *RemoteCli) Close() {
+	r.stdin.Close()
 	r.writeMsg(NewMessage(T_EOF, nil))
 }
 
 func (r *RemoteCli) Serve() error {
-	return r.ServeBy(os.Stdin)
+	return r.ServeBy()
 }
 
-func ListenRemote(n, addr string, cfg *Config, h func(*Instance), onListen ...func(net.Listener) error) error {
+func ListenRemote(n, addr string, cfg *Config, h func(*Instance), preAuth func(conn net.Conn) error, onListen ...func(net.Listener) error) error {
 	ln, err := net.Listen(n, addr)
 	if err != nil {
 		return err
@@ -434,6 +442,15 @@ func ListenRemote(n, addr string, cfg *Config, h func(*Instance), onListen ...fu
 		if err != nil {
 			continue
 		}
+		conn = wrapTLSServerConn(conn)
+
+		if preAuth != nil {
+			err = preAuth(conn)
+			if err != nil {
+				continue
+			}
+		}
+
 		go func() {
 			defer conn.Close()
 			rl, err := HandleConn(*cfg, conn)
@@ -460,12 +477,19 @@ func HandleConn(cfg Config, conn net.Conn) (*Instance, error) {
 	return rl, nil
 }
 
-func DialRemote(n, addr string) error {
+func DialRemote(n, addr string, preAuth func(conn net.Conn) error) error {
 	conn, err := net.Dial(n, addr)
 	if err != nil {
 		return err
 	}
+	conn = wrapTLSClientConn(conn)
 	defer conn.Close()
+	if preAuth != nil {
+		err = preAuth(conn)
+		if err != nil {
+			return err
+		}
+	}
 
 	cli, err := NewRemoteCli(conn)
 	if err != nil {
