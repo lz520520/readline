@@ -11,14 +11,19 @@ import (
 	"net"
 )
 
-func wrapTLSClientConn(c net.Conn) (out net.Conn) {
-	tlsConfig, _ := newClientTLSConfig("", "", "", "")
+func wrapTLSClientConn(c net.Conn, tlsConfig *tls.Config) (out net.Conn) {
+	if tlsConfig == nil {
+		tlsConfig, _ = newClientTLSConfig("", "", "", "")
+	}
 	out = tls.Client(c, tlsConfig)
 	return
 }
 
-func wrapTLSServerConn(c net.Conn) (out net.Conn) {
-	tlsConfig, _ := newServerTLSConfig("", "", "")
+func wrapTLSServerConn(c net.Conn, tlsConfig *tls.Config) (out net.Conn) {
+	if tlsConfig == nil {
+		tlsConfig, _ = newServerTLSConfig("", "", "")
+	}
+
 	out = tls.Server(c, tlsConfig)
 	return
 }

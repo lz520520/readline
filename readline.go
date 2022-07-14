@@ -17,12 +17,16 @@
 //
 package readline
 
-import "io"
+import (
+	"io"
+	"sync/atomic"
+)
 
 type Instance struct {
 	Config    *Config
 	Terminal  *Terminal
 	Operation *Operation
+	closed    int32
 }
 
 type Config struct {
@@ -271,11 +275,14 @@ func (i *Instance) ReadSlice() ([]byte, error) {
 
 // we must make sure that call Close() before process exit.
 func (i *Instance) Close() error {
-	if err := i.Terminal.Close(); err != nil {
-		return err
+	if atomic.CompareAndSwapInt32(&i.closed, 0, 1) {
+		i.Config.Stdin.Close()
+		i.Operation.Close()
+		if err := i.Terminal.Close(); err != nil {
+			return err
+		}
 	}
-	i.Config.Stdin.Close()
-	i.Operation.Close()
+
 	return nil
 }
 func (i *Instance) Clean() {

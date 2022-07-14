@@ -4,10 +4,12 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"sync/atomic"
 )
 
 var (
 	ErrInterrupt = errors.New("Interrupt")
+	ErrConnClose = errors.New("conn closed")
 )
 
 type InterruptError struct {
@@ -19,13 +21,15 @@ func (*InterruptError) Error() string {
 }
 
 type Operation struct {
-	m       sync.Mutex
-	cfg     *Config
-	t       *Terminal
-	buf     *RuneBuffer
-	outchan chan []rune
-	errchan chan error
-	w       io.Writer
+	m         sync.Mutex
+	cfg       *Config
+	t         *Terminal
+	buf       *RuneBuffer
+	outchan   chan []rune
+	errchan   chan error
+	closechan chan bool
+	closed    int32
+	w         io.Writer
 
 	history *opHistory
 	*opSearch
@@ -69,10 +73,11 @@ func (w *wrapWriter) Write(b []byte) (int, error) {
 func NewOperation(t *Terminal, cfg *Config) *Operation {
 	width := cfg.FuncGetWidth()
 	op := &Operation{
-		t:       t,
-		buf:     NewRuneBuffer(t, cfg.Prompt, cfg, width),
-		outchan: make(chan []rune),
-		errchan: make(chan error, 1),
+		t:         t,
+		buf:       NewRuneBuffer(t, cfg.Prompt, cfg, width),
+		outchan:   make(chan []rune),
+		errchan:   make(chan error, 1),
+		closechan: make(chan bool),
 	}
 	op.w = op.buf.w
 	op.SetConfig(cfg)
@@ -388,6 +393,8 @@ func (o *Operation) Runes() ([]rune, error) {
 	o.buf.Refresh(nil) // print prompt
 	o.t.KickRead()
 	select {
+	case <-o.closechan:
+		return nil, ErrConnClose
 	case r := <-o.outchan:
 		return r, nil
 	case err := <-o.errchan:
@@ -395,6 +402,7 @@ func (o *Operation) Runes() ([]rune, error) {
 			return e.Line, ErrInterrupt
 		}
 		return nil, err
+
 	}
 }
 
@@ -434,7 +442,11 @@ func (o *Operation) Slice() ([]byte, error) {
 }
 
 func (o *Operation) Close() {
-	o.history.Close()
+	if atomic.CompareAndSwapInt32(&o.closed, 0, 1) {
+		close(o.closechan)
+		o.history.Close()
+	}
+
 }
 
 func (o *Operation) SetHistoryPath(path string) {

@@ -3,6 +3,7 @@ package readline
 import (
 	"bufio"
 	"bytes"
+	"crypto/tls"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -34,6 +35,8 @@ type RemoteSvr struct {
 	isTerminal    bool
 	funcWidthChan func()
 	stopChan      chan struct{}
+
+	rl *Instance
 
 	dataBufM sync.Mutex
 	dataBuf  bytes.Buffer
@@ -157,6 +160,9 @@ func (r *RemoteSvr) writeMsg(m *Message) error {
 }
 
 func (r *RemoteSvr) Write(b []byte) (int, error) {
+	if atomic.LoadInt32(&r.closed) == 1 {
+		return 0, ErrConnClose
+	}
 	ctx := newWriteCtx(NewMessage(T_DATA, b))
 	r.writeChan <- ctx
 	reply := <-ctx.reply
@@ -191,8 +197,19 @@ loop:
 
 func (r *RemoteSvr) Close() error {
 	if atomic.CompareAndSwapInt32(&r.closed, 0, 1) {
+		// this lock
+		select {
+		case r.reciveChan <- struct{}{}:
+		default:
+		}
+
+		if r.rl != nil {
+			r.rl.Close()
+		}
+
 		close(r.stopChan)
 		r.conn.Close()
+
 	}
 	return nil
 }
@@ -386,6 +403,7 @@ func (r *RemoteCli) readLoop() {
 	for {
 		msg, err := ReadMessage(buf)
 		if err != nil {
+			fmt.Println(err.Error())
 			break
 		}
 		switch msg.Type {
@@ -427,7 +445,7 @@ func (r *RemoteCli) Serve() error {
 	return r.ServeBy()
 }
 
-func ListenRemote(n, addr string, cfg *Config, h func(*Instance), preAuth func(conn net.Conn) error, onListen ...func(net.Listener) error) error {
+func ListenRemote(n, addr string, cfg *Config, h func(*Instance), tlsConfig *tls.Config, preAuth func(conn net.Conn) error, onListen ...func(net.Listener) error) error {
 	ln, err := net.Listen(n, addr)
 	if err != nil {
 		return err
@@ -442,7 +460,7 @@ func ListenRemote(n, addr string, cfg *Config, h func(*Instance), preAuth func(c
 		if err != nil {
 			continue
 		}
-		conn = wrapTLSServerConn(conn)
+		conn = wrapTLSServerConn(conn, tlsConfig)
 
 		if preAuth != nil {
 			err = preAuth(conn)
@@ -474,15 +492,16 @@ func HandleConn(cfg Config, conn net.Conn) (*Instance, error) {
 	if err != nil {
 		return nil, err
 	}
+	r.rl = rl
 	return rl, nil
 }
 
-func DialRemote(n, addr string, preAuth func(conn net.Conn) error) error {
+func DialRemote(n, addr string, tlsConfig *tls.Config, preAuth func(conn net.Conn) error) error {
 	conn, err := net.Dial(n, addr)
 	if err != nil {
 		return err
 	}
-	conn = wrapTLSClientConn(conn)
+	conn = wrapTLSClientConn(conn, tlsConfig)
 	defer conn.Close()
 	if preAuth != nil {
 		err = preAuth(conn)
