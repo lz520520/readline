@@ -19,7 +19,7 @@ func main() {
 			fmt.Fprintln(rl.Stdout(), "receive:"+line)
 		}
 	}
-	err := readline.ListenRemote("tcp", ":12344", cfg, handleFunc)
+	err := readline.ListenRemote("tcp", ":12344", cfg, handleFunc, nil, nil)
 	if err != nil {
 		println(err.Error())
 	}
