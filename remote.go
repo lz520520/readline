@@ -3,9 +3,9 @@ package readline
 import (
 	"bufio"
 	"bytes"
-	"crypto/tls"
 	"encoding/binary"
 	"fmt"
+	tls "github.com/refraction-networking/utls"
 	"io"
 	"net"
 	"os"

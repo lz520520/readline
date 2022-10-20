@@ -3,9 +3,9 @@ package readline
 import (
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	tls "github.com/refraction-networking/utls"
 	"io/ioutil"
 	"math/big"
 	"net"
